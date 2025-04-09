@@ -1,5 +1,4 @@
-
-import { useState, useRef } from "react";
+import { useState, useRef, ChangeEvent, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -40,17 +39,33 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { ChatInterface } from "@/components/ChatInterface";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
+
+interface ImageFile {
+  file: File;
+  preview: string;
+}
 
 export default function Case() {
   const { caseId } = useParams();
   const [caseName, setCaseName] = useState(`Case #${caseId?.replace("case-", "")}`);
-  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<ImageFile[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"sources" | "chat" | "studio">("sources");
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sources" | "chat" | "studio">("studio");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [evidenceGuide, setEvidenceGuide] = useState<string | null>(null);
+  const [caseReport, setCaseReport] = useState<string | null>(null);
+  const [fingerprintResults, setFingerprintResults] = useState<any>(null);
+  const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
+  const [patternResults, setPatternResults] = useState<any>(null);
+  const [analyzedImages, setAnalyzedImages] = useState<string[]>([]);
 
   const triggerFileUpload = () => {
     if (fileInputRef.current) {
@@ -62,14 +77,17 @@ export default function Case() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newImages: string[] = [];
+    const newImages: ImageFile[] = [];
     
     Array.from(files).forEach((file) => {
       if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onload = (e) => {
           if (e.target?.result) {
-            newImages.push(e.target.result.toString());
+            newImages.push({
+              file: file,
+              preview: e.target.result.toString()
+            });
             
             // If this is the last file, update state
             if (newImages.length === files.length) {
@@ -107,33 +125,281 @@ export default function Case() {
       description: "The image has been removed from your case.",
     });
     
-    if (selectedImage === uploadedImages[index]) {
+    if (selectedImage === uploadedImages[index].preview) {
       setSelectedImage(null);
     }
   };
 
-  const analyzeEvidence = () => {
+  const analyzeEvidence = async () => {
+    if (uploadedImages.length === 0) {
+      toast({
+        title: "No Images Selected",
+        description: "Please upload at least one image to analyze.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsAnalyzing(true);
-    toast({
-      title: "Analysis Started",
-      description: "Your evidence is being analyzed. This may take a moment.",
-    });
-    
-    // Simulate analysis time
-    setTimeout(() => {
-      setIsAnalyzing(false);
-      if (!isMobile) {
-        setActiveTab("studio");
+    setIsProcessing(true);
+
+    try {
+      const formData = new FormData();
+      uploadedImages.forEach((img) => {
+        formData.append("images", img.file);
+      });
+
+      const response = await fetch("http://localhost:5000/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze evidence.");
       }
+
+      const data = await response.json();
+      console.log("Analysis Result:", data);
+      setAnalysisResults(data.results);
+
+      // Store the analyzed images
+      const analyzedImageUrls = uploadedImages.map(img => img.preview);
+      setAnalyzedImages(analyzedImageUrls);
+
       toast({
         title: "Analysis Complete",
         description: "Your evidence has been analyzed. View the results in the Studio tab.",
       });
-    }, 2000);
+
+      if (!isMobile) {
+        setActiveTab("studio");
+      }
+    } catch (error) {
+      console.error("Error analyzing evidence:", error);
+      toast({
+        title: "Analysis Failed",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const fetchEvidenceGuide = async () => {
+    if (uploadedImages.length === 0) return;
+
+    try {
+      const formData = new FormData();
+      formData.append("images", uploadedImages[0].file);
+
+      const response = await fetch("http://localhost:5000/evidence-guide", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch evidence guide.");
+      }
+
+      const data = await response.json();
+      console.log("Evidence Guide:", data);
+      setEvidenceGuide(data.evidence_guide);
+
+      toast({
+        title: "Evidence Guide Generated",
+        description: "Check the guide in the Studio tab.",
+      });
+    } catch (error) {
+      console.error("Error fetching evidence guide:", error);
+      toast({
+        title: "Failed to Generate Guide",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const fetchCaseReport = async () => {
+    if (uploadedImages.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      uploadedImages.forEach((image) => {
+        formData.append("images", image.file);
+      });
+
+      const response = await fetch("http://localhost:5000/case-report", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate case report.");
+      }
+
+      const data = await response.json();
+      console.log("Case Report:", data);
+      setCaseReport(data.report);
+
+      toast({
+        title: "Case Report Generated",
+        description: "Check the report in the Studio tab.",
+      });
+    } catch (error) {
+      console.error("Error generating case report:", error);
+      toast({
+        title: "Failed to Generate Report",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const [searchResults, setSearchResults] = useState([]);
+  const [query, setQuery] = useState("");
+
+  const handleSearchChange = (event) => {
+    setQuery(event.target.value);
+  };
+
+  const handleSearchSubmit = async () => {
+    if (query.trim() === "") return;
+
+    setLoading(true); // Show loading state
+
+    try {
+      const response = await fetch("http://localhost:5000/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }), // Send query to backend
+      });
+      const data = await response.json(); // Parse backend response
+
+      setSearchResults([data.response, ...searchResults]); // Append response above
+    } catch (error) {
+      console.error("Error fetching AI response:", error);
+    } finally {
+      setLoading(false);
+      setQuery(""); // Clear input field
+    }
   };
 
   const handleImageClick = (imageSrc: string) => {
     setSelectedImage(imageSrc);
+  };
+
+  const handleFingerprintDetection = async () => {
+    if (uploadedImages.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append("images", uploadedImages[0].file);
+
+      const response = await fetch("http://localhost:5000/fingerprint", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to detect fingerprints.");
+      }
+
+      const data = await response.json();
+      setFingerprintResults(data);
+      toast({
+        title: "Fingerprint Detection Complete",
+        description: "Check the results in the Studio tab.",
+      });
+    } catch (error) {
+      console.error("Error detecting fingerprints:", error);
+      toast({
+        title: "Fingerprint Detection Failed",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImageEnhancement = async () => {
+    if (uploadedImages.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append("images", uploadedImages[0].file);
+
+      const response = await fetch("http://localhost:5000/enhance", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to enhance image.");
+      }
+
+      const data = await response.json();
+      setEnhancedImage(data.enhanced_image);
+      toast({
+        title: "Image Enhancement Complete",
+        description: "Check the enhanced image in the Studio tab.",
+      });
+    } catch (error) {
+      console.error("Error enhancing image:", error);
+      toast({
+        title: "Image Enhancement Failed",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePatternRecognition = async () => {
+    if (uploadedImages.length === 0) return;
+
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      uploadedImages.forEach((image) => {
+        formData.append("images", image.file);
+      });
+
+      const response = await fetch("http://localhost:5000/patterns", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to analyze patterns.");
+      }
+
+      const data = await response.json();
+      setPatternResults(data);
+      toast({
+        title: "Pattern Analysis Complete",
+        description: "Check the results in the Studio tab.",
+      });
+    } catch (error) {
+      console.error("Error analyzing patterns:", error);
+      toast({
+        title: "Pattern Analysis Failed",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -209,9 +475,9 @@ export default function Case() {
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sources Panel */}
-        <div className={`w-96 border-r overflow-y-auto flex flex-col ${activeTab === "sources" ? "block" : "hidden md:block"}`}>
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        {/* Sources Panel - Left Side */}
+        <div className={`w-full md:w-80 border-r overflow-y-auto flex flex-col ${activeTab === "sources" ? "block" : "hidden md:block"}`}>
           <div className="flex items-center justify-between p-4 border-b">
             <h2 className="font-semibold">Evidence Images</h2>
             <Button variant="ghost" size="icon">
@@ -256,15 +522,15 @@ export default function Case() {
             </div>
           ) : (
             <div className="p-4 space-y-3">
-              {uploadedImages.map((src, index) => (
+              {uploadedImages.map((image, index) => (
                 <div 
                   key={index} 
-                  className={`relative group rounded-md border overflow-hidden flex items-center p-2 hover:bg-accent cursor-pointer ${selectedImage === src ? 'bg-accent/60' : ''}`}
-                  onClick={() => handleImageClick(src)}
+                  className={`relative group rounded-md border overflow-hidden flex items-center p-2 hover:bg-accent cursor-pointer ${selectedImage === image.preview ? 'bg-accent/60' : ''}`}
+                  onClick={() => setSelectedImage(image.preview)}
                 >
                   <div className="h-16 w-16 rounded overflow-hidden mr-3 flex-shrink-0">
                     <img
-                      src={src}
+                      src={image.preview}
                       alt={`Evidence ${index + 1}`}
                       className="h-full w-full object-cover"
                     />
@@ -325,81 +591,204 @@ export default function Case() {
           </div>
         </div>
 
-        {/* Chat/Middle Panel */}
-        <div className={`flex-1 flex flex-col ${activeTab === "chat" ? "block" : "hidden md:block"}`}>
-          <div className="flex items-center justify-between p-4 border-b">
-            <h2 className="font-semibold">Image Preview</h2>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <Eye className="h-4 w-4" />
+        {/* Generated Content - Middle */}
+        <div className={`flex-1 flex flex-col ${activeTab === "studio" || activeTab === "chat" ? "block" : "hidden"}`}>
+          {/* Tab Navigation - Always visible */}
+          <div className="flex justify-between items-center p-4 border-b">
+            <Tabs value={activeTab} className="w-full" onValueChange={(value) => setActiveTab(value as "studio" | "chat")}>
+              <TabsList className="grid w-full max-w-sm grid-cols-2">
+                <TabsTrigger value="studio" className="flex items-center gap-2">
+                  <Microscope className="w-4 h-4" />
+                  Studio
+                </TabsTrigger>
+                <TabsTrigger value="chat" className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  Chat
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {activeTab === "studio" && caseReport && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="flex items-center gap-2"
+                onClick={() => {
+                  const blob = new Blob([caseReport], { type: 'text/plain' });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `case-report-${caseId}.txt`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                  toast({
+                    title: "Report Downloaded",
+                    description: "The case report has been downloaded successfully.",
+                  });
+                }}
+              >
+                <FileUp className="h-4 w-4" />
+                Download Report
               </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <FileText className="h-4 w-4" />
-              </Button>
-            </div>
+            )}
           </div>
-          
-          <div className="flex-1 flex flex-col items-center justify-center p-4 bg-card/40">
-            {uploadedImages.length === 0 ? (
-              <div className="text-center max-w-md">
-                <Image className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No images to display</h3>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Upload evidence images from the Sources panel to view and analyze them here.
-                </p>
-                <Button onClick={triggerFileUpload}>
-                  <UploadCloud className="h-4 w-4 mr-2" />
-                  Upload images
-                </Button>
-              </div>
-            ) : selectedImage ? (
-              <div className="flex flex-col w-full max-w-3xl h-full">
-                <div className="relative flex-1 flex items-center justify-center bg-black/5 rounded-lg overflow-hidden">
-                  <img 
-                    src={selectedImage} 
-                    alt="Selected evidence" 
-                    className="max-w-full max-h-full object-contain"
+
+          {/* Content Area */}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 bg-card/40 w-full h-full overflow-y-auto relative">
+            <div className="w-full max-w-4xl">
+              {/* Content based on active tab */}
+              {activeTab === "studio" ? (
+                <div className="space-y-4">
+                  {/* Analysis Results */}
+                  {analysisResults && (
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-medium mb-2">Analysis Results</h3>
+                      {analysisResults.map((result: any, index: number) => (
+                        <div key={index} className="mb-4 last:mb-0">
+                          <p className="text-sm font-medium">{result.predicted_crime_type}</p>
+                          <p className="text-sm text-muted-foreground">{result.predicted_crime}</p>
+                          <p className="text-xs text-muted-foreground mt-1">Confidence: {(result.confidence_score * 100).toFixed(1)}%</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Evidence Guide */}
+                  {evidenceGuide && (
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-medium mb-2">Evidence Collection Guide</h3>
+                      <p className="text-sm whitespace-pre-wrap">{evidenceGuide}</p>
+                    </div>
+                  )}
+
+                  {/* Case Report */}
+                  {caseReport && (
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-medium">Case Report</h3>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex items-center gap-2"
+                          onClick={() => {
+                            const blob = new Blob([caseReport], { type: 'text/plain' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `case-report-${caseId}.txt`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                            toast({
+                              title: "Report Downloaded",
+                              description: "The case report has been downloaded successfully.",
+                            });
+                          }}
+                        >
+                          <FileUp className="h-4 w-4" />
+                          Download
+                        </Button>
+                      </div>
+                      <div className="space-y-4 overflow-y-auto max-h-[600px]">
+                        {caseReport.split('\n').map((line, index) => {
+                          const trimmedLine = line.trim();
+                          if (!trimmedLine) return null;
+                          
+                          if (trimmedLine.startsWith('**')) {
+                            return (
+                              <h4 key={index} className="font-medium text-base sticky top-0 bg-background py-2">
+                                {trimmedLine.replace(/\*\*/g, '')}
+                              </h4>
+                            );
+                          }
+                          
+                          if (trimmedLine.startsWith('*')) {
+                            return (
+                              <div key={index} className="flex items-start gap-2">
+                                <span className="text-primary mt-1">•</span>
+                                <span className="text-sm">{trimmedLine.replace('*', '')}</span>
+                              </div>
+                            );
+                          }
+                          
+                          return <p key={index} className="text-sm">{trimmedLine}</p>;
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fingerprint Results */}
+                  {fingerprintResults && (
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-medium mb-2">Fingerprint Analysis</h3>
+                      <div className="space-y-2">
+                        <p className="text-sm">Detected Fingerprints: {fingerprintResults.count}</p>
+                        <p className="text-sm">Quality Score: {fingerprintResults.quality_score}</p>
+                        {fingerprintResults.details && (
+                          <p className="text-sm whitespace-pre-wrap">{fingerprintResults.details}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Enhanced Image */}
+                  {enhancedImage && (
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-medium mb-2">Enhanced Image</h3>
+                      <img 
+                        src={enhancedImage} 
+                        alt="Enhanced" 
+                        className="w-full rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {/* Pattern Recognition Results */}
+                  {patternResults && (
+                    <div className="border rounded-lg p-4">
+                      <h3 className="font-medium mb-2">Pattern Analysis</h3>
+                      <div className="space-y-2">
+                        {patternResults.patterns.map((pattern: any, index: number) => (
+                          <div key={index} className="mb-2">
+                            <p className="text-sm font-medium">{pattern.type}</p>
+                            <p className="text-sm text-muted-foreground">{pattern.description}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Confidence: {(pattern.confidence * 100).toFixed(1)}%</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Default State */}
+                  {!analysisResults && !evidenceGuide && !caseReport && (
+                    <div className="flex flex-col items-center justify-center p-6 text-center border rounded-lg">
+                      <div className="p-3 bg-muted rounded-lg mb-3">
+                        <FileText className="w-8 h-8" />
+                      </div>
+                      <h3 className="font-medium">Analysis results will appear here</h3>
+                      <p className="text-xs mt-2 text-muted-foreground">
+                        Click "Analyze" on an evidence image to generate insights and analysis
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex-1 overflow-hidden">
+                  <ChatInterface 
+                    selectedImage={selectedImage} 
+                    analyzedImages={analyzedImages}
                   />
                 </div>
-                
-                <div className="mt-4 flex justify-between">
-                  <Button variant="outline" size="sm">
-                    <FileText className="h-4 w-4 mr-2" />
-                    Generate report
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <Camera className="h-4 w-4 mr-2" />
-                    Enhance image
-                  </Button>
-                  <Button variant="default" size="sm" onClick={analyzeEvidence} disabled={isAnalyzing}>
-                    {isAnalyzing ? (
-                      <>
-                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-                        Analyzing...
-                      </>
-                    ) : (
-                      <>
-                        <Microscope className="h-4 w-4 mr-2" />
-                        Analyze
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center">
-                <MessageSquare className="w-12 h-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium">Select an image to analyze</h3>
-                <p className="text-sm mt-2 max-w-md text-muted-foreground">
-                  Click on any image in the Evidence Images panel to view and analyze it.
-                </p>
-              </div>
-            )}
+              )}
+            </div>
+            {isProcessing && activeTab === "studio" && <LoadingOverlay />}
           </div>
         </div>
 
-        {/* Studio/Tools Panel */}
-        <div className={`w-96 border-l overflow-y-auto flex flex-col ${activeTab === "studio" ? "block" : "hidden md:block"}`}>
+        {/* Tools Panel - Right Side */}
+        <div className={`w-96 border-l overflow-y-auto flex flex-col ${activeTab === "studio" || activeTab === "chat" ? "block" : "hidden"}`}>
           <div className="flex items-center justify-between p-4 border-b">
             <h2 className="font-semibold">Forensic Tools</h2>
             <Button variant="ghost" size="icon">
@@ -432,25 +821,23 @@ export default function Case() {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button className="justify-start" variant="outline" size="sm">
-                      <Customize className="w-4 h-4 mr-2" />
-                      Options
-                    </Button>
-                    <Button className="justify-start" size="sm" disabled={uploadedImages.length === 0 || isAnalyzing} onClick={analyzeEvidence}>
-                      {isAnalyzing ? (
-                        <>
-                          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <BarChart3 className="w-4 h-4 mr-2" />
-                          Analyze
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                  <Button 
+                    className="w-full" 
+                    onClick={analyzeEvidence}
+                    disabled={isAnalyzing || uploadedImages.length === 0}
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Microscope className="h-4 w-4 mr-2" />
+                        Analyze Evidence
+                      </>
+                    )}
+                  </Button>
                 </CardContent>
               </Card>
             </div>
@@ -458,71 +845,56 @@ export default function Case() {
             <div className="mb-6">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-medium">Tools</h3>
+                <Button variant="ghost" size="icon" className="h-6 w-6">
+                  <Info className="w-3 h-3" />
+                </Button>
               </div>
               
               <div className="space-y-2">
-                <Button variant="outline" className="w-full justify-start text-left" size="sm" disabled={uploadedImages.length === 0}>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start text-left" 
+                  size="sm" 
+                  onClick={handleFingerprintDetection}
+                  disabled={uploadedImages.length === 0}
+                >
                   <Fingerprint className="h-4 w-4 mr-2 flex-shrink-0" />
                   <span className="truncate">Fingerprint Detection</span>
                 </Button>
-                <Button variant="outline" className="w-full justify-start text-left" size="sm" disabled={uploadedImages.length === 0}>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start text-left" 
+                  size="sm" 
+                  onClick={handleImageEnhancement}
+                  disabled={uploadedImages.length === 0}
+                >
                   <Camera className="h-4 w-4 mr-2 flex-shrink-0" />
                   <span className="truncate">Image Enhancement</span>
                 </Button>
-                <Button variant="outline" className="w-full justify-start text-left" size="sm" disabled={uploadedImages.length === 0}>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start text-left" 
+                  size="sm" 
+                  onClick={fetchCaseReport}
+                  disabled={uploadedImages.length === 0}
+                >
                   <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
                   <span className="truncate">Evidence Report</span>
                 </Button>
-                <Button variant="outline" className="w-full justify-start text-left" size="sm" disabled={uploadedImages.length === 0}>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start text-left" 
+                  size="sm" 
+                  onClick={handlePatternRecognition}
+                  disabled={uploadedImages.length === 0}
+                >
                   <BarChart3 className="h-4 w-4 mr-2 flex-shrink-0" />
                   <span className="truncate">Pattern Recognition</span>
                 </Button>
               </div>
             </div>
-            
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium">Analysis Notes</h3>
-                <Button variant="ghost" size="sm" className="h-7 gap-1">
-                  <Plus className="h-3.5 w-3.5" />
-                  Add note
-                </Button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <Button variant="outline" className="justify-start text-left" size="sm">
-                  <Book className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="truncate">Evidence guide</span>
-                </Button>
-                <Button variant="outline" className="justify-start text-left" size="sm">
-                  <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="truncate">Case report</span>
-                </Button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" className="justify-start text-left" size="sm">
-                  <MessageSquare className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="truncate">Key findings</span>
-                </Button>
-                <Button variant="outline" className="justify-start text-left" size="sm">
-                  <Scroll className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="truncate">Timeline</span>
-                </Button>
-              </div>
-            </div>
-            
-            <div className="mt-12 flex flex-col items-center justify-center p-6 text-center border rounded-lg">
-              <div className="p-3 bg-muted rounded-lg mb-3">
-                <FileText className="w-8 h-8" />
-              </div>
-              <h3 className="font-medium">Analysis results will appear here</h3>
-              <p className="text-xs mt-2 text-muted-foreground">
-                Click "Analyze" on an evidence image to generate insights and analysis
-              </p>
-            </div>
-          </div>
-        </div>
+                    </div>
+                </div>
       </div>
 
       {/* Mobile Navigation */}
@@ -539,15 +911,15 @@ export default function Case() {
             className={`flex flex-col items-center py-3 ${activeTab === "chat" ? "text-primary" : "text-muted-foreground"}`}
             onClick={() => setActiveTab("chat")}
           >
-            <Eye className="h-5 w-5 mb-1" />
-            <span className="text-xs">Preview</span>
+            <MessageSquare className="h-5 w-5 mb-1" />
+            <span className="text-xs">Chat</span>
           </button>
           <button
             className={`flex flex-col items-center py-3 ${activeTab === "studio" ? "text-primary" : "text-muted-foreground"}`}
             onClick={() => setActiveTab("studio")}
           >
             <Microscope className="h-5 w-5 mb-1" />
-            <span className="text-xs">Tools</span>
+            <span className="text-xs">Studio</span>
           </button>
         </div>
       </div>

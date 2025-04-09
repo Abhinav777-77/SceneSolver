@@ -16,24 +16,50 @@ export default function SignIn() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // const handleSubmit = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   setIsLoading(true);
+    
+  //   // Simulate authentication (replace with actual auth in a real app)
+  //   setTimeout(() => {
+  //     setIsLoading(false);
+      
+  //     // For demo purposes, accept any login
+  //     toast({
+  //       title: "Welcome back",
+  //       description: "You have successfully signed in.",
+  //     });
+      
+  //     navigate("/dashboard");
+  //   }, 1500);
+  // };
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Simulate authentication (replace with actual auth in a real app)
-    setTimeout(() => {
-      setIsLoading(false);
-      
-      // For demo purposes, accept any login
-      toast({
-        title: "Welcome back",
-        description: "You have successfully signed in.",
+    console.log("I am in the signin.tsx page!!!");
+    try {
+      const response = await fetch("http://localhost:5000/auth/signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
-      
-      navigate("/dashboard");
-    }, 1500);
+  
+      const data = await response.json();
+  
+      if (response.ok) {
+        localStorage.setItem("token", data.token);
+        toast({ title: "Welcome back!", description: "Login successful" });
+        navigate("/dashboard");
+      } else {
+        toast({ title: "Error", description: data.message });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Something went wrong" });
+    } finally {
+      setIsLoading(false);
+    }
   };
-
+  
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar />
