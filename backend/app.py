@@ -13,11 +13,14 @@ import io
 import base64
 import numpy as np
 from scipy import ndimage
+from dotenv import load_dotenv
 import cv2
 
+
+load_dotenv()
 # ✅ Google Gemini API Key
-GEMINI_API_KEY = "AIzaSyC-ps_WW6vDlOw5Xoxk3r7rtDTBwlK_4Vk"
-genai.configure(api_key=GEMINI_API_KEY)
+gemini_api_key =os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=gemini_api_key)
 
 # Verify API key is valid
 try:
@@ -30,7 +33,7 @@ except Exception as e:
     print("Please check your API key and internet connection")
 
 # ✅ Initialize Gemini LLM
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=GEMINI_API_KEY)
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=gemini_api_key)
 
 # ✅ Flask Server Initialization
 app = Flask(__name__)
