@@ -32,10 +32,10 @@ except Exception as e:
     print(f"❌ Error connecting to Gemini API: {e}")
     print("Please check your API key and internet connection")
 
-# ✅ Initialize Gemini LLM
+#  Initialize Gemini LLM
 llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=gemini_api_key)
 
-# ✅ Flask Server Initialization
+#  Flask Server Initialization
 app = Flask(__name__)
 
 # Store the last processed image and its analysis results
@@ -307,7 +307,7 @@ def process_query():
             "stack": traceback.format_exc() if app.debug else None
         }), 500
 
-# ✅ Load Crime Dataset
+#  Load Crime Dataset
 data_path = "crime_dataset.csv"
 if os.path.exists(data_path):
     df = pd.read_csv(data_path)
@@ -316,7 +316,7 @@ else:
     print(f"❌ Error: Dataset not found at {data_path}")
     df = None
 
-# ✅ Load CLIP Model and Processor
+#  Load CLIP Model and Processor
 model_name = "openai/clip-vit-base-patch16"
 model = CLIPModel.from_pretrained(model_name)
 processor = CLIPProcessor.from_pretrained(model_name)
@@ -668,6 +668,6 @@ def patterns():
         print(f"Error in pattern analysis: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-# ✅ Run Flask App
+# Run Flask App
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
